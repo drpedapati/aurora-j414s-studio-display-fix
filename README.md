@@ -59,7 +59,16 @@ clear swap timed out (swap 0); not latching firmware crash
 
 The following reconnect restored 5K/60 Hz. This supports the false crash-latch
 hypothesis; it does not establish that all reconnect failures are resolved.
-Exp2 cross-port reconnect and suspend/resume have not been tested.
+The owner then moved the connection to the opposite side of the Mac and
+confirmed a working picture. Logs showed the `f01f00000.nhi` controller's DP
+tunnel up, `USB-3` connected, and 5120×2880 at 60 Hz again, with no new observed
+kernel oops or RTKit crash report. This is one successful cross-side move.
+
+The owner also reported charging working at **65 W** with the display connected.
+This is an owner-reported result, not an independently measured USB-PD contract
+or sustained battery charging-rate measurement.
+
+Exp2 suspend/resume has not been tested.
 
 Only one machine and one display were tested. Suspend/resume,
 cold boot with the display connected, audio,
