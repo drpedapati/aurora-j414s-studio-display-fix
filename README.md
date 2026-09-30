@@ -70,6 +70,37 @@ or sustained battery charging-rate measurement.
 
 Exp2 suspend/resume has not been tested.
 
+### Desktop layout and brightness follow-up
+
+Omarchy Hyprmoncfg plugin 2.7.0 with the ARM64 hyprmoncfg 1.22.0 backend was
+installed and enabled. Both displays were detected, and the following stacked
+layout was applied, validated with no Hyprland configuration errors, and saved
+as `studio-above-laptop`:
+
+| Display | Mode | Scale | Logical position |
+| --- | --- | --- | --- |
+| Studio Display | 5120×2880 at 60 Hz | 2 | 0×0 |
+| Laptop (`eDP-1`) | 3024×1890 at 120 Hz | 1.75 | 416×1440 |
+
+This centers the laptop directly below the Studio Display. The Studio Display
+rule uses its display description rather than `USB-3`, so the rule is not tied
+to that port's connector name. These are desktop configuration results, not
+additional kernel changes; the saved profile is local to the test machine.
+
+Hardware brightness control remains unavailable in this test. Omarchy's
+`asdcontrol` query found no Apple Display HID device; the enumerated hidraw
+devices were the laptop's internal inputs. Privileged `ddcutil detect` found no
+displays. The display's audio device was also absent from the ALSA card list.
+`USB-3` is a DRM display-connector label, not proof that USB peripherals have
+enumerated. No brightness change or live controller reset was attempted.
+
+[asdcontrol issue #5](https://github.com/nikosdion-archive/asdcontrol/issues/5)
+describes the same video-without-USB-control shape: brightness uses USB HID,
+not DisplayPort DDC. [Aurora PR #50](https://github.com/aurora-silicon/linux/pull/50)
+is a relevant, **unapplied** candidate for the missing PCIe-C preinit handoff
+reported on this machine. Its PCIe-C/USB results were tested on J416c M2 Max,
+not this J414s M2 Pro; it has not been qualified here.
+
 Only one machine and one display were tested. Suspend/resume,
 cold boot with the display connected, audio,
 camera, brightness controls, dual monitors and docks have not been qualified.
