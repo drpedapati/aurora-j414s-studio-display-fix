@@ -1,0 +1,88 @@
+diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
+index a32d60bdd..dcbfb5c94 100644
+--- i/drivers/gpu/drm/apple/dcp.c
++++ w/drivers/gpu/drm/apple/dcp.c
+@@ -661,7 +661,8 @@ int apple_dcp_tb_dp_tunnel(struct device_node *connector_np, unsigned int dpin,
+ 			continue;
+ 		score = dcp_typec_route_score(candidate);
+ 		/* j416s dcpext0 completes tunneled link training; prefer it. */
+-		if (of_machine_is_compatible("apple,j416s") &&
++		if ((of_machine_is_compatible("apple,j416s") ||
++		     of_machine_is_compatible("apple,j414s")) &&
+ 		    !candidate->dcp->fixed_phy && score < UINT_MAX - 100)
+ 			score += 100;
+ 		if (score < best_score) {
+@@ -1395,7 +1396,8 @@ static int dcp_dptx_connect(struct apple_dcp *dcp, u32 port)
+ 	dcp->dptxport[port].connected = true;
+ 	if (dcp_is_typec_output(dcp)) {
+ 		if (dcp_is_usb4_output(dcp) &&
+-		    of_machine_is_compatible("apple,j416s"))
++		    (of_machine_is_compatible("apple,j416s") ||
++		     of_machine_is_compatible("apple,j414s")))
+ 			ret = dptxport_set_hpd_timeout(dcp->dptxport[port].service,
+ 						       true, 8000);
+ 		else
+@@ -1410,7 +1412,9 @@ static int dcp_dptx_connect(struct apple_dcp *dcp, u32 port)
+ 	}
+ 
+ 	mutex_unlock(&dcp->hpd_mutex);
+-	timeout = dcp_is_usb4_output(dcp) && of_machine_is_compatible("apple,j416s") ?
++	timeout = dcp_is_usb4_output(dcp) &&
++		  (of_machine_is_compatible("apple,j416s") ||
++		   of_machine_is_compatible("apple,j414s")) ?
+ 		  DPTX_TUNNEL_CONNECT_TIMEOUT : DPTX_CONNECT_TIMEOUT;
+ 	ret = wait_for_completion_timeout(&dcp->dptxport[port].linkcfg_completion,
+ 					  timeout);
+@@ -1540,7 +1544,9 @@ static void dcp_typec_reconnect_work(struct work_struct *work)
+ 	}
+ 
+ 	if (++dcp->typec_reconnect_tries <
+-	    (dcp_is_usb4_output(dcp) && of_machine_is_compatible("apple,j416s") ?
++	    (dcp_is_usb4_output(dcp) &&
++	     (of_machine_is_compatible("apple,j416s") ||
++	      of_machine_is_compatible("apple,j414s")) ?
+ 	     1 : DPTX_RECONNECT_RETRIES)) {
+ 		mod_delayed_work(system_freezable_wq, &dcp->typec_reconnect_wq,
+ 				 DPTX_RECONNECT_DELAY);
+diff --git i/drivers/phy/apple/atc.c w/drivers/phy/apple/atc.c
+index a8588ff00..4ef5b85f4 100644
+--- i/drivers/phy/apple/atc.c
++++ w/drivers/phy/apple/atc.c
+@@ -2679,9 +2679,11 @@ int apple_atc_dp_tunnel_rate(struct phy *phy, u8 rate)
+ 	atcphy = phy_get_drvdata(phy);
+ 	/* Keep each supported SoC on its qualified clock sequence. */
+ 	if (!of_machine_is_compatible("apple,t8103") &&
+-	    !of_machine_is_compatible("apple,j416s"))
++	    !of_machine_is_compatible("apple,j416s") &&
++	    !of_machine_is_compatible("apple,j414s"))
+ 		return -EOPNOTSUPP;
+-	if (of_machine_is_compatible("apple,j416s") &&
++	if ((of_machine_is_compatible("apple,j416s") ||
++	     of_machine_is_compatible("apple,j414s")) &&
+ 	    (!of_device_is_compatible(atcphy->np, "apple,t6020-atcphy") ||
+ 	     !apple_atc_is_typec_core(atcphy->res.core->start) ||
+ 	     resource_size(atcphy->res.core) < 0x7048))
+diff --git i/drivers/thunderbolt/apple.c w/drivers/thunderbolt/apple.c
+index a22d29b9f..81087945e 100644
+--- i/drivers/thunderbolt/apple.c
++++ w/drivers/thunderbolt/apple.c
+@@ -309,7 +309,8 @@ static int apple_dpin_set_active_t8103(struct apple_cio *acio, void __iomem *dpi
+ static int apple_dpin_set_active(struct apple_cio *acio, void __iomem *regs,
+ 				 unsigned int idx, bool active)
+ {
+-	if (of_machine_is_compatible("apple,j416s"))
++	if (of_machine_is_compatible("apple,j416s") ||
++	    of_machine_is_compatible("apple,j414s"))
+ 		return apple_dpin_set_active_t602x(acio, regs, idx, active);
+ 	return apple_dpin_set_active_t8103(acio, regs, idx, active);
+ }
+@@ -1599,7 +1600,8 @@ static int apple_nhi_probe(struct platform_device *pdev)
+ 	anhi->ops = apple_nhi_ops;
+ 	if (dp_display && acio->dp_wq && of_machine_is_compatible("apple,t8103"))
+ 		anhi->ops.dp_tunnel_changed = apple_nhi_dp_tunnel_changed;
+-	if (acio->dp_wq && of_machine_is_compatible("apple,j416s")) {
++	if (acio->dp_wq && (of_machine_is_compatible("apple,j416s") ||
++			    of_machine_is_compatible("apple,j414s"))) {
+ 		anhi->ops.dp_tunnel_pre_activate = apple_nhi_dp_tunnel_pre_activate;
+ 		anhi->ops.dp_tunnel_post_activate = apple_nhi_dp_tunnel_post_activate;
+ 		anhi->ops.dp_tunnel_deactivate = apple_nhi_dp_tunnel_deactivate;
