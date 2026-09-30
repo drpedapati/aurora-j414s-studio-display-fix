@@ -10,6 +10,14 @@ J414s (14-inch M2 Pro). This is a narrow, experimental patch against
 Mac ports) subsequently produced no picture and disconnected DRM connectors.
 This is an incomplete experiment, not a reliable daily-use fix.
 
+**Do not unbind/rebind the Apple Thunderbolt controller to recover it.**
+On the test machine, resetting the right-side `f01ac0000.cio` controller and
+then reconnecting caused a kernel NULL-pointer oops in
+`apple_cio_tbt_switch_set`, called from `cd321x_update_work` through
+`typec_thunderbolt_switch_set`. The desktop survived, but the connection did
+not recover. The reset likely exposed a driver lifetime bug; its exact cause
+has not been established. Reboot rather than attempting further live resets.
+
 It changes three files and retains that base's SEP, AVD and other fixes.
 It is not the full [Aurora PR #46](https://github.com/aurora-silicon/linux/pull/46),
 which inspired the model enablement. That PR includes additional routing,
