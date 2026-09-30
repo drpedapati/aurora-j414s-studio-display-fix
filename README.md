@@ -5,6 +5,11 @@ J414s (14-inch M2 Pro). This is a narrow, experimental patch against
 `iconidentify/aurora-linux` commit
 `17cba00e43b94ba6b5c64be7cbe3db9234a41f84`.
 
+**Known failure: reconnect is broken.** The first connection produced a working
+5K/60 Hz picture, but unplugging and reconnecting (including moving to other
+Mac ports) subsequently produced no picture and disconnected DRM connectors.
+This is an incomplete experiment, not a reliable daily-use fix.
+
 It changes three files and retains that base's SEP, AVD and other fixes.
 It is not the full [Aurora PR #46](https://github.com/aurora-silicon/linux/pull/46),
 which inspired the model enablement. That PR includes additional routing,
@@ -31,8 +36,12 @@ dpin0: active handshake=0
 dpin0: crossbar link up (dispext=0 atc=0x1)
 ```
 
-Only one machine and one display were tested. Suspend/resume, repeated hotplug,
-the opposite port after patching, cold boot with the display connected, audio,
+On subsequent reconnects, the display still enumerated and the driver reported
+the DP tunnel routed and active, but DRM remained disconnected. Cross-port
+reconnect also failed. Root cause and recovery have not yet been established.
+
+Only one machine and one display were tested. Suspend/resume,
+cold boot with the display connected, audio,
 camera, brightness controls, dual monitors and docks have not been qualified.
 PCIe-C still reports a missing m1n1 preinit handoff; this patch does not fix it.
 The generic `device links to tunneled native ports are missing!` warning also
