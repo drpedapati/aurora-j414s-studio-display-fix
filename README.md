@@ -10,6 +10,14 @@ picture but failed on reconnect. Exp2 adds a narrow clear-swap timeout change;
 the timeout warning was observed and the subsequent reconnect recovered.
 This remains an experimental result on one machine, not a qualified daily-use fix.
 
+**Latest status (September 30, 2026): exp4 booted and restored tunneled USB
+enumeration, but brightness is not fixed and USB reconnect reliability is not
+qualified.** See the [test log](TESTING-2026-09-30.md) for the exp3 failure,
+exp4 results, bounded brightness experiments, and same-display macOS comparison.
+The published patches below stop at exp3; the local exp4 correction has not yet
+been packaged in this repository. Do not mistake successful HID readback for
+successful physical backlight control.
+
 **Do not unbind/rebind the Apple Thunderbolt controller to recover it.**
 On the test machine, resetting the right-side `f01ac0000.cio` controller and
 then reconnecting caused a kernel NULL-pointer oops in
@@ -87,7 +95,9 @@ rule uses its display description rather than `USB-3`, so the rule is not tied
 to that port's connector name. These are desktop configuration results, not
 additional kernel changes; the saved profile is local to the test machine.
 
-Hardware brightness control remains unavailable in this test. Omarchy's
+The following paragraph records the **earlier exp2 state**, superseded by the
+exp4 USB results in the [test log](TESTING-2026-09-30.md).
+Hardware brightness control remained unavailable in that test. Omarchy's
 `asdcontrol` query found no Apple Display HID device; the enumerated hidraw
 devices were the laptop's internal inputs. Privileged `ddcutil detect` found no
 displays. The display's audio device was also absent from the ALSA card list.
@@ -101,7 +111,7 @@ is a relevant candidate for the missing PCIe-C preinit handoff
 reported on this machine. Its PCIe-C/USB results were tested on J416c M2 Max,
 not this J414s M2 Pro; it has not been qualified here.
 
-### Exp3 PCIe-C preflight — not installed or hardware-tested
+### Exp3 PCIe-C preflight — historical build and installation record
 
 A diagnostic m1n1 build successfully booted this J414s with the working exp2
 kernel. It exported `dart-tunables-instance-0` from this machine's actual iBoot
@@ -149,14 +159,18 @@ device-tree warnings and a Rust unused-import warning were present. The full
 Image/modules/dtbs build passed, including module symbol validation. A final
 rebuild with the fallback-safe DT flag also passed.
 
-**Exp3 is installed but not yet boot-tested or qualified for brightness/USB.**
+**At the time of this pre-reboot record, exp3 was installed but not boot-tested.**
+It subsequently failed to probe because of an M1-only OE-fabric resource check;
+the local exp4 correction and its hardware results are documented in the
+[test log](TESTING-2026-09-30.md). The remainder of this section preserves the
+original preflight record rather than describing the currently running kernel.
 The separate UKI selects `7.1.12-j414s-pcie-exp3+` with
 `pcie_apple.tunnel_kernel_init=1`. Its matching modules and boot command line
 were verified. The m1n1 bundle replaces exactly one J414s DTB; every other
 packaged DTB is unchanged. The exact previous bundle is retained as
 `boot.bin.pre-exp3`, alongside an additional workspace backup. Correct
 DART values remove one uncertainty, not the cold-init/teardown/resume risks.
-The running kernel remains exp2 until the requested reboot. The older exp2 and
+At that point the running kernel remained exp2 until reboot. The older exp2 and
 packaged Aurora boot entries remain available and ignore exp3's custom flag.
 Selecting an older Limine kernel does not restore the shared device tree;
 restore the exact stage-2 backup for a complete rollback. Preserve exact
