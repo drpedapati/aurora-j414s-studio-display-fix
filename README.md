@@ -5,10 +5,10 @@ J414s (14-inch M2 Pro). This is a narrow, experimental patch against
 `iconidentify/aurora-linux` commit
 `17cba00e43b94ba6b5c64be7cbe3db9234a41f84`.
 
-**Known failure: reconnect is broken.** The first connection produced a working
-5K/60 Hz picture, but unplugging and reconnecting (including moving to other
-Mac ports) subsequently produced no picture and disconnected DRM connectors.
-This is an incomplete experiment, not a reliable daily-use fix.
+**Exp2: three same-port reconnects passed at 5K/60 Hz.** Exp1 enabled the first
+picture but failed on reconnect. Exp2 adds a narrow clear-swap timeout change;
+the timeout warning was observed and the subsequent reconnect recovered.
+This remains an experimental result on one machine, not a qualified daily-use fix.
 
 **Do not unbind/rebind the Apple Thunderbolt controller to recover it.**
 On the test machine, resetting the right-side `f01ac0000.cio` controller and
@@ -18,7 +18,7 @@ then reconnecting caused a kernel NULL-pointer oops in
 not recover. The reset likely exposed a driver lifetime bug; its exact cause
 has not been established. Reboot rather than attempting further live resets.
 
-It changes three files and retains that base's SEP, AVD and other fixes.
+Exp2 changes four files and retains that base's SEP, AVD and other fixes.
 It is not the full [Aurora PR #46](https://github.com/aurora-silicon/linux/pull/46),
 which inspired the model enablement. That PR includes additional routing,
 dual-stream, clock and bandwidth changes and does not apply cleanly to this base.
@@ -44,9 +44,22 @@ dpin0: active handshake=0
 dpin0: crossbar link up (dispext=0 atc=0x1)
 ```
 
-On subsequent reconnects, the display still enumerated and the driver reported
+With exp1, on subsequent reconnects, the display still enumerated and the driver reported
 the DP tunnel routed and active, but DRM remained disconnected. Cross-port
-reconnect also failed. Root cause and recovery have not yet been established.
+reconnect also failed.
+
+After a fresh boot into `7.1.12-j414s-dp-exp2+`, the owner confirmed an initial
+picture and three successful same-port unplug/replug cycles. Kernel logs recorded
+5120×2880 at 60 Hz after each reconnect, with no observed kernel oops or RTKit
+crash report. During the second cycle, the new diagnostic fired:
+
+```text
+clear swap timed out (swap 0); not latching firmware crash
+```
+
+The following reconnect restored 5K/60 Hz. This supports the false crash-latch
+hypothesis; it does not establish that all reconnect failures are resolved.
+Exp2 cross-port reconnect and suspend/resume have not been tested.
 
 Only one machine and one display were tested. Suspend/resume,
 cold boot with the display connected, audio,
@@ -66,6 +79,15 @@ The patch adds J414s alongside existing J416s checks in:
 No register sequences or shared driver interfaces are changed. This is model
 enablement of an existing implementation, not a claim of general M2 support.
 
+Exp2 additionally changes `drivers/gpu/drm/apple/iomfb_template.c`: a clear-swap
+timeout warns instead of setting `dcp->crashed`. The early return is retained;
+actual RTKit crash handling still sets the crash flag. This follows the narrow
+approach discussed in [Aurora PR #5](https://github.com/aurora-silicon/linux/pull/5)
+(closed, unmerged), not that PR's complete patch.
+
+`j414s-dp-exp2.patch` is cumulative against the exact base above. Apply it alone,
+not on top of `j414s-dp-exp1.patch`. Exp1 remains available for comparison.
+
 ## Reproduce the build
 
 Use a separate build directory on disk, not a small RAM-backed `/tmp`.
@@ -78,8 +100,8 @@ pahole, cpio, git, clang, llvm, rust, rust-src and rust-bindgen.
 git clone https://github.com/iconidentify/aurora-linux.git linux-j414s
 cd linux-j414s
 git checkout --detach 17cba00e43b94ba6b5c64be7cbe3db9234a41f84
-git apply --check /path/to/j414s-dp-exp1.patch
-git apply /path/to/j414s-dp-exp1.patch
+git apply --check /path/to/j414s-dp-exp2.patch
+git apply /path/to/j414s-dp-exp2.patch
 git diff --check
 
 # Start from the tested Aurora kernel's configuration.
@@ -87,7 +109,7 @@ git diff --check
 mkdir ../build-j414s
 zcat /proc/config.gz > ../build-j414s/.config
 scripts/config --file ../build-j414s/.config \
-  --set-str LOCALVERSION '-j414s-dp-exp1' --disable LOCALVERSION_AUTO
+  --set-str LOCALVERSION '-j414s-dp-exp2' --disable LOCALVERSION_AUTO
 make O=../build-j414s ARCH=arm64 olddefconfig
 make O=../build-j414s ARCH=arm64 rustavailable
 make O=../build-j414s ARCH=arm64 -j6 Image modules dtbs
