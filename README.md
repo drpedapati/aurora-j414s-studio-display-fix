@@ -132,7 +132,9 @@ verified unchanged. This successful boot is not a PCIe-C or brightness test.
 as exp2**, applied alone, not on top of exp2. It retains exp2's video changes and
 ports the narrow PCIe-C idea instead of PR #50's full stacked display series:
 
-- J414s-only DT flags and the independently verified DART tunables.
+- J414s-only `apple,j414s-pciec-exp3` DT flags and independently verified DART
+  tunables. Older exp2/package kernels ignore this experiment-specific flag,
+  avoiding unintended cold initialization when selecting a fallback kernel.
 - Default-off `pcie_apple.tunnel_kernel_init` opt-in, guarded before activation.
 - Early M2 preparation maps Intr2AXI rather than requiring M1's OE-fabric region.
 - Cold init waits for RUN before root-complex register accesses, then configures
@@ -141,15 +143,23 @@ ports the narrow PCIe-C idea instead of PR #50's full stacked display series:
 
 The touched PCIe/Thunderbolt objects and J414s DTB compiled with `W=1`.
 The compiled DTB's tunables and flags were inspected on all three ports;
-`git diff --check` and checkpatch passed with zero errors/warnings. Existing
+`git diff --check` passed. Checkpatch reports zero errors and one packaging
+warning because the cumulative patch combines DT bindings and driver changes. Existing
 device-tree warnings and a Rust unused-import warning were present. The full
-Image/modules/dtbs build is **still in progress** at publication time.
+Image/modules/dtbs build passed, including module symbol validation. A final
+rebuild with the fallback-safe DT flag also passed.
 
-**Exp3 is not installed, boot-tested, or qualified for brightness/USB.** Correct
+**Exp3 is installed but not yet boot-tested or qualified for brightness/USB.**
+The separate UKI selects `7.1.12-j414s-pcie-exp3+` with
+`pcie_apple.tunnel_kernel_init=1`. Its matching modules and boot command line
+were verified. The m1n1 bundle replaces exactly one J414s DTB; every other
+packaged DTB is unchanged. The exact previous bundle is retained as
+`boot.bin.pre-exp3`, alongside an additional workspace backup. Correct
 DART values remove one uncertainty, not the cold-init/teardown/resume risks.
-The installed diagnostic still boots exp2 with PCIe-C disabled. A future exp3
-test needs both its kernel and updated m1n1 DTB payload; selecting an older
-Limine kernel alone does not restore the shared device tree. Preserve exact
+The running kernel remains exp2 until the requested reboot. The older exp2 and
+packaged Aurora boot entries remain available and ignore exp3's custom flag.
+Selecting an older Limine kernel does not restore the shared device tree;
+restore the exact stage-2 backup for a complete rollback. Preserve exact
 stage-2 backups and a recovery route before any activation. Do not perform
 live controller resets. No additional upstream PR has been opened.
 
