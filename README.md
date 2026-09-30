@@ -97,9 +97,61 @@ enumerated. No brightness change or live controller reset was attempted.
 [asdcontrol issue #5](https://github.com/nikosdion-archive/asdcontrol/issues/5)
 describes the same video-without-USB-control shape: brightness uses USB HID,
 not DisplayPort DDC. [Aurora PR #50](https://github.com/aurora-silicon/linux/pull/50)
-is a relevant, **unapplied** candidate for the missing PCIe-C preinit handoff
+is a relevant candidate for the missing PCIe-C preinit handoff
 reported on this machine. Its PCIe-C/USB results were tested on J416c M2 Max,
 not this J414s M2 Pro; it has not been qualified here.
+
+### Exp3 PCIe-C preflight — not installed or hardware-tested
+
+A diagnostic m1n1 build successfully booted this J414s with the working exp2
+kernel. It exported `dart-tunables-instance-0` from this machine's actual iBoot
+ADT for all three `dart-apciec` ports. All three sets matched PR #50's J416c
+reference exactly:
+
+```text
+<0x20c 0xff0000b7 0xe40000b7>
+<0x220 0x000f0f0f 0x000f0f0f>
+<0x224 0x00ffffff 0x00080808>
+<0x300 0x00001f31 0x00000001>
+<0x308 0x3ffffffc 0x10000000>
+<0x310 0x3ffffffc 0x3ffffffc>
+```
+
+`m1n1-j414s-dart-diagnostic.patch` targets
+`iconidentify/m1n1` / `aurora-silicon/m1n1` commit
+`97e2de3d4fec0ea707691fecf7772efce664ca5e`. It copies raw ADT properties under
+diagnostic names in `/chosen`; it does not enable PCIe-C, create driver-consumed
+tunable properties, or apply those values to MMIO. Missing/malformed data is
+reported without intentionally blocking boot. `decode-dart-diagnostic.py`
+decodes the exported little-endian records and checks access size, alignment,
+offset bounds and 32-bit masks/values. The diagnostic bootloader was installed
+with the previous exact stage-2 bundle backed up; DTB and U-Boot payloads were
+verified unchanged. This successful boot is not a PCIe-C or brightness test.
+
+`j414s-pcie-exp3.patch` is a **cumulative candidate against the same Linux base
+as exp2**, applied alone, not on top of exp2. It retains exp2's video changes and
+ports the narrow PCIe-C idea instead of PR #50's full stacked display series:
+
+- J414s-only DT flags and the independently verified DART tunables.
+- Default-off `pcie_apple.tunnel_kernel_init` opt-in, guarded before activation.
+- Early M2 preparation maps Intr2AXI rather than requiring M1's OE-fabric region.
+- Cold init waits for RUN before root-complex register accesses, then configures
+  the bridge and clears RID mappings; the original M1 path remains separate.
+- No connector renaming or new dual-stream routing changes.
+
+The touched PCIe/Thunderbolt objects and J414s DTB compiled with `W=1`.
+The compiled DTB's tunables and flags were inspected on all three ports;
+`git diff --check` and checkpatch passed with zero errors/warnings. Existing
+device-tree warnings and a Rust unused-import warning were present. The full
+Image/modules/dtbs build is **still in progress** at publication time.
+
+**Exp3 is not installed, boot-tested, or qualified for brightness/USB.** Correct
+DART values remove one uncertainty, not the cold-init/teardown/resume risks.
+The installed diagnostic still boots exp2 with PCIe-C disabled. A future exp3
+test needs both its kernel and updated m1n1 DTB payload; selecting an older
+Limine kernel alone does not restore the shared device tree. Preserve exact
+stage-2 backups and a recovery route before any activation. Do not perform
+live controller resets. No additional upstream PR has been opened.
 
 Only one machine and one display were tested. Suspend/resume,
 cold boot with the display connected, audio,

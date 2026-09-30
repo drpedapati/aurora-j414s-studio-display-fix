@@ -1,0 +1,355 @@
+diff --git i/arch/arm64/boot/dts/apple/t6020-j414s.dts w/arch/arm64/boot/dts/apple/t6020-j414s.dts
+index a22706972..42b3a6789 100644
+--- i/arch/arm64/boot/dts/apple/t6020-j414s.dts
++++ w/arch/arm64/boot/dts/apple/t6020-j414s.dts
+@@ -21,6 +21,43 @@ &wifi0 {
+ 	brcm,board-type = "apple,tokara";
+ };
+ 
++/* Experimental PCIe-C cold init; driver activation remains default-off.
++ * DART values verified against this J414s's iBoot ADT on 2026-09-30.
++ */
++&apciec0 {
++	apple,pciec-kernel-init;
++};
++
++&apciec1 {
++	apple,pciec-kernel-init;
++};
++
++&apciec2 {
++	apple,pciec-kernel-init;
++};
++
++#define J414S_PCIEC_DART_TUNABLES \
++	apple,tunable = <0x20c 0xff0000b7 0xe40000b7>, \
++			<0x220 0x000f0f0f 0x000f0f0f>, \
++			<0x224 0x00ffffff 0x00080808>, \
++			<0x300 0x00001f31 0x00000001>, \
++			<0x308 0x3ffffffc 0x10000000>, \
++			<0x310 0x3ffffffc 0x3ffffffc>
++
++&apciec0_dart {
++	J414S_PCIEC_DART_TUNABLES;
++};
++
++&apciec1_dart {
++	J414S_PCIEC_DART_TUNABLES;
++};
++
++&apciec2_dart {
++	J414S_PCIEC_DART_TUNABLES;
++};
++
++#undef J414S_PCIEC_DART_TUNABLES
++
+ &bluetooth0 {
+ 	brcm,board-type = "apple,tokara";
+ };
+diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
+index a32d60bdd..dcbfb5c94 100644
+--- i/drivers/gpu/drm/apple/dcp.c
++++ w/drivers/gpu/drm/apple/dcp.c
+@@ -661,7 +661,8 @@ int apple_dcp_tb_dp_tunnel(struct device_node *connector_np, unsigned int dpin,
+ 			continue;
+ 		score = dcp_typec_route_score(candidate);
+ 		/* j416s dcpext0 completes tunneled link training; prefer it. */
+-		if (of_machine_is_compatible("apple,j416s") &&
++		if ((of_machine_is_compatible("apple,j416s") ||
++		     of_machine_is_compatible("apple,j414s")) &&
+ 		    !candidate->dcp->fixed_phy && score < UINT_MAX - 100)
+ 			score += 100;
+ 		if (score < best_score) {
+@@ -1395,7 +1396,8 @@ static int dcp_dptx_connect(struct apple_dcp *dcp, u32 port)
+ 	dcp->dptxport[port].connected = true;
+ 	if (dcp_is_typec_output(dcp)) {
+ 		if (dcp_is_usb4_output(dcp) &&
+-		    of_machine_is_compatible("apple,j416s"))
++		    (of_machine_is_compatible("apple,j416s") ||
++		     of_machine_is_compatible("apple,j414s")))
+ 			ret = dptxport_set_hpd_timeout(dcp->dptxport[port].service,
+ 						       true, 8000);
+ 		else
+@@ -1410,7 +1412,9 @@ static int dcp_dptx_connect(struct apple_dcp *dcp, u32 port)
+ 	}
+ 
+ 	mutex_unlock(&dcp->hpd_mutex);
+-	timeout = dcp_is_usb4_output(dcp) && of_machine_is_compatible("apple,j416s") ?
++	timeout = dcp_is_usb4_output(dcp) &&
++		  (of_machine_is_compatible("apple,j416s") ||
++		   of_machine_is_compatible("apple,j414s")) ?
+ 		  DPTX_TUNNEL_CONNECT_TIMEOUT : DPTX_CONNECT_TIMEOUT;
+ 	ret = wait_for_completion_timeout(&dcp->dptxport[port].linkcfg_completion,
+ 					  timeout);
+@@ -1540,7 +1544,9 @@ static void dcp_typec_reconnect_work(struct work_struct *work)
+ 	}
+ 
+ 	if (++dcp->typec_reconnect_tries <
+-	    (dcp_is_usb4_output(dcp) && of_machine_is_compatible("apple,j416s") ?
++	    (dcp_is_usb4_output(dcp) &&
++	     (of_machine_is_compatible("apple,j416s") ||
++	      of_machine_is_compatible("apple,j414s")) ?
+ 	     1 : DPTX_RECONNECT_RETRIES)) {
+ 		mod_delayed_work(system_freezable_wq, &dcp->typec_reconnect_wq,
+ 				 DPTX_RECONNECT_DELAY);
+diff --git i/drivers/gpu/drm/apple/iomfb_template.c w/drivers/gpu/drm/apple/iomfb_template.c
+index 38a1ebb56..4de619d50 100644
+--- i/drivers/gpu/drm/apple/iomfb_template.c
++++ w/drivers/gpu/drm/apple/iomfb_template.c
+@@ -950,7 +950,13 @@ void DCP_FW_NAME(iomfb_poweroff)(struct apple_dcp *dcp)
+ 	swap_id = cookie->swap_id;
+ 	kref_put(&cookie->refcount, release_swap_cookie);
+ 	if (ret <= 0) {
+-		dcp->crashed = true;
++		/* A removed sink may swallow the clear swap. Only the RTKit
++		 * crash callback establishes a firmware crash; retain the early
++		 * return here because continuing power-off can break DPTX HPD.
++		 */
++		dev_warn(dcp->dev,
++			 "clear swap timed out (swap %u); not latching firmware crash\n",
++			 swap_id);
+ 		return;
+ 	}
+ 
+diff --git i/drivers/pci/controller/pcie-apple.c w/drivers/pci/controller/pcie-apple.c
+index 8cd5708b7..3a90ca348 100644
+--- i/drivers/pci/controller/pcie-apple.c
++++ w/drivers/pci/controller/pcie-apple.c
+@@ -64,6 +64,19 @@ static int link_up_timeout = 500;
+ module_param(link_up_timeout, int, 0644);
+ MODULE_PARM_DESC(link_up_timeout, "PCIe link training timeout in milliseconds");
+ 
++static bool tunnel_kernel_init;
++module_param(tunnel_kernel_init, bool, 0644);
++MODULE_PARM_DESC(tunnel_kernel_init, "Experimental J414s PCIe-C cold init (default off)");
++
++bool apple_pcie_tunnel_kernel_init_allowed(struct device_node *np)
++{
++	if (!of_device_is_compatible(np, "apple,t6000-pciec") ||
++	    !of_property_read_bool(np, "apple,pciec-kernel-init"))
++		return true;
++	return of_machine_is_compatible("apple,j414s") && READ_ONCE(tunnel_kernel_init);
++}
++EXPORT_SYMBOL_GPL(apple_pcie_tunnel_kernel_init_allowed);
++
+ /* T8103 (original M1) and related SoCs */
+ #define CORE_RC_PHYIF_CTL		0x00024
+ #define   CORE_RC_PHYIF_CTL_RUN		BIT(0)
+@@ -838,12 +851,58 @@ static int apple_pcie_tunnel_reinitialize(struct apple_pcie_port *port)
+  * root-port config-space tunables. Stop before releasing the tunnel reset
+  * or starting link training.
+  */
++static int apple_pcie_tunnel_cold_init_t602x(struct apple_pcie_port *port)
++{
++	struct apple_pcie *pcie = port->pcie;
++	u32 stat;
++	int i, ret;
++
++	if (!of_machine_is_compatible("apple,j414s") ||
++	    !READ_ONCE(tunnel_kernel_init))
++		return -EPERM;
++	dev_info(pcie->dev, "experimental T602x PCIe-C cold init: fabric/reset/port\n");
++	apple_pcie_tunnel_apply_tunable(pcie->debug_base, pcie->debug_tunable);
++	apple_pcie_tunnel_apply_tunable(pcie->fabric_base, pcie->fabric_tunable);
++	apple_pcie_tunnel_reset_hardware(port);
++	apple_pcie_tunnel_apply_tunable(port->base, port->tunable);
++	apple_pcie_port_rmw_set(port, PORT_PERST_OFF, pcie->hw->port_perst);
++	apple_pcie_port_rmw_set(port, PORT_APPCLK_EN, PORT_APPCLK);
++	/* PR50: RUN must precede root-complex config-space accesses. */
++	ret = read_poll_timeout_atomic(apple_pcie_port_readl, stat,
++				       stat & PORT_STATUS_READY,
++				       10, 250000, false, port, PORT_STATUS);
++	if (ret)
++		return dev_err_probe(pcie->dev, ret,
++				     "T602x cold init: RUN absent (%#x)\n", stat);
++	dev_info(pcie->dev, "T602x cold init: RUN set, root-complex tunables\n");
++	apple_pcie_tunnel_apply_tunable(pcie->cfg ? pcie->cfg->win : pcie->early_cfg,
++					pcie->rc_tunable);
++	apple_pcie_port_rmw_clear(port, PORT_APPCLK_CGDIS, PORT_APPCLK);
++	apple_pcie_port_writel(port, PORT_COUNTER_ENABLE, PORT_COUNTER_CTRL);
++	apple_pcie_port_writel(port, ~0, PORT_INTSTAT);
++	apple_pcie_port_writel(port, ~0, PORT_LINKCMDSTS);
++	apple_pcie_tunnel_pulse_intr2axi(pcie);
++	ret = read_poll_timeout_atomic(apple_pcie_port_readl, stat,
++				       !(stat & PORT_LINKSTS_BUSY),
++				       10, 250000, false, port, PORT_LINKSTS);
++	if (ret)
++		return dev_err_probe(pcie->dev, ret,
++				     "T602x cold init: link busy (%#x)\n", stat);
++	for (i = 0; i < pcie->hw->max_rid2sid; i++)
++		apple_pcie_rid2sid_write(port, i, 0);
++	dev_info(pcie->dev, "T602x PCIe-C cold init complete\n");
++	return 0;
++}
++
+ static int apple_pcie_tunnel_cold_init(struct apple_pcie_port *port)
+ {
+ 	struct apple_pcie *pcie = port->pcie;
+ 	u32 stat;
+ 	int ret;
+ 
++	if (of_machine_is_compatible("apple,j414s"))
++		return apple_pcie_tunnel_cold_init_t602x(port);
++
+ 	stat = apple_pcie_port_readl(port, PORT_STATUS);
+ 	dev_info(pcie->dev, "port %pOF PCIe-C cold init, status %#x\n",
+ 		 port->np, stat);
+@@ -2078,6 +2137,8 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 	if (pcie->hw->tunneled) {
+ 		pcie->kernel_init = of_property_read_bool(dev->of_node,
+ 							  "apple,pciec-kernel-init");
++		if (!apple_pcie_tunnel_kernel_init_allowed(dev->of_node))
++			return dev_err_probe(dev, -EPERM, "J414s PCIe-C kernel init disabled\n");
+ 		ret = apple_pcie_tunnel_init_resources(pdev, pcie);
+ 		if (ret)
+ 			return ret;
+@@ -2417,18 +2478,25 @@ int apple_pcie_tunnel_prepare(struct device *dev, struct device_node *tunnel)
+ 	struct apple_pcie *pcie;
+ 	struct apple_pcie_port *port;
+ 	struct apple_pcie_map config = {}, debug = {}, fabric = {}, portmap = {};
+-	struct apple_pcie_map oe = {};
++	struct apple_pcie_map oe = {}, intr2axi = {};
++	bool t602x;
+ 	u32 stat;
+ 	int ret;
+ 
+ 	np = NULL;
+ 	for_each_available_child_of_node(tunnel, np) {
+-		if (of_device_is_compatible(np, "apple,t8103-pciec") &&
++		if ((of_device_is_compatible(np, "apple,t8103-pciec") ||
++		     of_device_is_compatible(np, "apple,t6000-pciec")) &&
+ 		    of_property_read_bool(np, "apple,pciec-kernel-init"))
+ 			break;
+ 	}
+ 	if (!np)
+ 		return 0;
++	if (!apple_pcie_tunnel_kernel_init_allowed(np)) {
++		ret = -EPERM;
++		goto out_np;
++	}
++	t602x = of_device_is_compatible(np, "apple,t6000-pciec");
+ 
+ 	match = of_match_node(apple_pcie_of_match, np);
+ 	if (!match) {
+@@ -2457,7 +2525,8 @@ int apple_pcie_tunnel_prepare(struct device *dev, struct device_node *tunnel)
+ 	ret = apple_pcie_map_named(np, "fabric", &fabric);
+ 	if (ret)
+ 		goto out_np;
+-	ret = apple_pcie_map_named(np, "oe-fabric", &oe);
++	ret = t602x ? apple_pcie_map_named(np, "intr2axi", &intr2axi) :
++		apple_pcie_map_named(np, "oe-fabric", &oe);
+ 	if (ret)
+ 		goto out_np;
+ 
+@@ -2481,6 +2550,7 @@ int apple_pcie_tunnel_prepare(struct device *dev, struct device_node *tunnel)
+ 	pcie->debug_base = debug.base;
+ 	pcie->fabric_base = fabric.base;
+ 	pcie->oe_fabric_base = oe.base;
++	pcie->intr2axi_base = intr2axi.base;
+ 	pcie->debug_tunable = apple_pcie_tunable_once(np, "apple,tunable-debug",
+ 						      &debug.res);
+ 	if (IS_ERR(pcie->debug_tunable)) {
+@@ -2502,13 +2572,15 @@ int apple_pcie_tunnel_prepare(struct device *dev, struct device_node *tunnel)
+ 		pcie->rc_tunable = NULL;
+ 		goto out_free;
+ 	}
+-	pcie->oe_fabric_tunable = apple_pcie_tunable_once(np,
+-							 "apple,tunable-oe-fabric",
+-							 &oe.res);
+-	if (IS_ERR(pcie->oe_fabric_tunable)) {
+-		ret = PTR_ERR(pcie->oe_fabric_tunable);
+-		pcie->oe_fabric_tunable = NULL;
+-		goto out_free;
++	if (!t602x) {
++		pcie->oe_fabric_tunable = apple_pcie_tunable_once(np,
++							     "apple,tunable-oe-fabric",
++							     &oe.res);
++		if (IS_ERR(pcie->oe_fabric_tunable)) {
++			ret = PTR_ERR(pcie->oe_fabric_tunable);
++			pcie->oe_fabric_tunable = NULL;
++			goto out_free;
++		}
+ 	}
+ 
+ 	port->pcie = pcie;
+@@ -2547,6 +2619,7 @@ int apple_pcie_tunnel_prepare(struct device *dev, struct device_node *tunnel)
+ 	apple_pcie_unmap(&fabric);
+ 	apple_pcie_unmap(&portmap);
+ 	apple_pcie_unmap(&oe);
++	apple_pcie_unmap(&intr2axi);
+ 	of_node_put(np);
+ 	return ret;
+ }
+diff --git i/drivers/phy/apple/atc.c w/drivers/phy/apple/atc.c
+index a8588ff00..4ef5b85f4 100644
+--- i/drivers/phy/apple/atc.c
++++ w/drivers/phy/apple/atc.c
+@@ -2679,9 +2679,11 @@ int apple_atc_dp_tunnel_rate(struct phy *phy, u8 rate)
+ 	atcphy = phy_get_drvdata(phy);
+ 	/* Keep each supported SoC on its qualified clock sequence. */
+ 	if (!of_machine_is_compatible("apple,t8103") &&
+-	    !of_machine_is_compatible("apple,j416s"))
++	    !of_machine_is_compatible("apple,j416s") &&
++	    !of_machine_is_compatible("apple,j414s"))
+ 		return -EOPNOTSUPP;
+-	if (of_machine_is_compatible("apple,j416s") &&
++	if ((of_machine_is_compatible("apple,j416s") ||
++	     of_machine_is_compatible("apple,j414s")) &&
+ 	    (!of_device_is_compatible(atcphy->np, "apple,t6020-atcphy") ||
+ 	     !apple_atc_is_typec_core(atcphy->res.core->start) ||
+ 	     resource_size(atcphy->res.core) < 0x7048))
+diff --git i/drivers/thunderbolt/apple.c w/drivers/thunderbolt/apple.c
+index a22d29b9f..7eca7cd85 100644
+--- i/drivers/thunderbolt/apple.c
++++ w/drivers/thunderbolt/apple.c
+@@ -309,7 +309,8 @@ static int apple_dpin_set_active_t8103(struct apple_cio *acio, void __iomem *dpi
+ static int apple_dpin_set_active(struct apple_cio *acio, void __iomem *regs,
+ 				 unsigned int idx, bool active)
+ {
+-	if (of_machine_is_compatible("apple,j416s"))
++	if (of_machine_is_compatible("apple,j416s") ||
++	    of_machine_is_compatible("apple,j414s"))
+ 		return apple_dpin_set_active_t602x(acio, regs, idx, active);
+ 	return apple_dpin_set_active_t8103(acio, regs, idx, active);
+ }
+@@ -893,6 +894,11 @@ static int apple_cio_activate_pcie_tunnel_locked(struct apple_cio *acio)
+ 	if (!acio->pcie_tunnel_np)
+ 		return 0;
+ 
++	for_each_available_child_of_node_scoped(acio->pcie_tunnel_np, child)
++		if (!apple_pcie_tunnel_kernel_init_allowed(child))
++			return dev_err_probe(acio->dev, -EPERM,
++					     "J414s PCIe-C cold init disabled (opt-in required)\n");
++
+ 	/*
+ 	 * The host survives a tunnel teardown, quiesced with its hierarchy
+ 	 * removed. Bring that one back rather than populating a second.
+@@ -1599,7 +1605,8 @@ static int apple_nhi_probe(struct platform_device *pdev)
+ 	anhi->ops = apple_nhi_ops;
+ 	if (dp_display && acio->dp_wq && of_machine_is_compatible("apple,t8103"))
+ 		anhi->ops.dp_tunnel_changed = apple_nhi_dp_tunnel_changed;
+-	if (acio->dp_wq && of_machine_is_compatible("apple,j416s")) {
++	if (acio->dp_wq && (of_machine_is_compatible("apple,j416s") ||
++			    of_machine_is_compatible("apple,j414s"))) {
+ 		anhi->ops.dp_tunnel_pre_activate = apple_nhi_dp_tunnel_pre_activate;
+ 		anhi->ops.dp_tunnel_post_activate = apple_nhi_dp_tunnel_post_activate;
+ 		anhi->ops.dp_tunnel_deactivate = apple_nhi_dp_tunnel_deactivate;
+diff --git i/include/linux/pci-apple.h w/include/linux/pci-apple.h
+index d7c2d244d..516cf43f4 100644
+--- i/include/linux/pci-apple.h
++++ w/include/linux/pci-apple.h
+@@ -2,10 +2,14 @@
+ #ifndef _LINUX_PCI_APPLE_H
+ #define _LINUX_PCI_APPLE_H
+ 
++#include <linux/types.h>
++
+ struct device;
+ struct device_node;
+ struct notifier_block;
+ 
++bool apple_pcie_tunnel_kernel_init_allowed(struct device_node *np);
++
+ /* Atomic notification; data is the host's parent device, valid in callback. */
+ #define APPLE_PCIE_TUNNEL_LINK_DOWN 1
+ 

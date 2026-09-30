@@ -1,0 +1,67 @@
+diff --git i/src/kboot.c w/src/kboot.c
+index 5eee48a6..a99099c8 100644
+--- i/src/kboot.c
++++ w/src/kboot.c
+@@ -1396,6 +1396,53 @@ err:
+     return -1;
+ }
+ 
++/* Diagnostic only: preserve raw ADT bytes, never apply them to hardware or
++ * publish apple,tunable/pciec-kernel-init properties consumed by drivers.
++ */
++static void dt_export_j414s_pciec_dart_diagnostic(void)
++{
++    if (fdt_node_check_compatible(dt, 0, "apple,j414s") != 0)
++        return;
++
++    for (int i = 0; i < 3; i++) {
++        char path[48], prop[64];
++        snprintf(path, sizeof(path), "/arm-io/dart-apciec%d", i);
++        int anode = adt_path_offset(adt, path);
++        u32 len = 0;
++        const void *raw = anode < 0 ? NULL :
++            adt_getprop(adt, anode, "dart-tunables-instance-0", &len);
++        int chosen = fdt_path_offset(dt, "/chosen");
++        if (chosen < 0)
++            return;
++
++        snprintf(prop, sizeof(prop), "asahi,diagnostic-pciec-dart%d-status", i);
++        const char *status = !raw ? "missing" :
++            (!len || len > 4096 || len % sizeof(struct acio_tunable)) ?
++            "invalid-length" : "exported";
++        int ret = fdt_setprop_string(dt, chosen, prop, status);
++        printf("DART diagnostic: %s %s (%u bytes), status write %d\n",
++               path, status, len, ret);
++        if (ret || !raw || !len || len > 4096 || len % sizeof(struct acio_tunable))
++            continue;
++
++        /* DT edits invalidate offsets; look /chosen up again every time. */
++        chosen = fdt_path_offset(dt, "/chosen");
++        snprintf(prop, sizeof(prop), "asahi,diagnostic-pciec-dart%d-raw", i);
++        ret = fdt_setprop(dt, chosen, prop, raw, len);
++        printf("DART diagnostic: raw export %d\n", ret);
++        if (ret)
++            continue;
++
++        const void *reg = adt_getprop(adt, anode, "reg", &len);
++        if (reg && len && len <= 256) {
++            chosen = fdt_path_offset(dt, "/chosen");
++            snprintf(prop, sizeof(prop), "asahi,diagnostic-pciec-dart%d-reg", i);
++            ret = fdt_setprop(dt, chosen, prop, reg, len);
++            printf("DART diagnostic: reg export %d\n", ret);
++        }
++    }
++}
++
+ static int dt_set_pcie_tunables(void)
+ {
+     char adt_path[32];
+@@ -1411,6 +1458,8 @@ static int dt_set_pcie_tunables(void)
+         dt_copy_pciec_tunables(adt_path, fdt_alias);
+     }
+ 
++    dt_export_j414s_pciec_dart_diagnostic();
++
+     return 0;
+ }
+ 
