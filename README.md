@@ -10,13 +10,15 @@ picture but failed on reconnect. Exp2 adds a narrow clear-swap timeout change;
 the timeout warning was observed and the subsequent reconnect recovered.
 This remains an experimental result on one machine, not a qualified daily-use fix.
 
-**Latest status (September 30, 2026): exp4 booted and restored tunneled USB
-enumeration, but brightness is not fixed and USB reconnect reliability is not
-qualified.** See the [test log](TESTING-2026-09-30.md) for the exp3 failure,
-exp4 results, bounded brightness experiments, and same-display macOS comparison.
-The published patches below stop at exp3; the local exp4 correction has not yet
-been packaged in this repository. Do not mistake successful HID readback for
-successful physical backlight control.
+**Latest status (October 2, 2026): local exp5 booted with tunneled USB, but
+physical brightness remains unresolved.** A working x86 ThinkPad Nano now gives
+us a comparison baseline: its brightness USB payloads match ARM, while its
+reported video configuration differs. See the [current investigation and next
+tests](TESTING-2026-10-02.md), and the [September 30 history](TESTING-2026-09-30.md).
+The published patches below stop at exp3; local exp4/exp5 changes have not yet
+been packaged here. Exp5 reconnect and suspend/resume are not qualified.
+Successful HID readback is not proof of physical backlight control, and the
+video-depth difference is a candidate, not a confirmed cause.
 
 **Do not unbind/rebind the Apple Thunderbolt controller to recover it.**
 On the test machine, resetting the right-side `f01ac0000.cio` controller and
